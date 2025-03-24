@@ -7,35 +7,55 @@ import (
 	"time"
 )
 
-func main() {
-	// Настраиваем обработчик для корневого пути
-	http.HandleFunc("/", timeHandler)
+type CityTime struct {
+	Name string
+	Time string
+}
 
-	// Запускаем сервер на порту 8080
+var selectedCities = []string{"Europe/London", "Europe/Moscow"} // Начальные города
+
+func main() {
+	http.HandleFunc("/", timeHandler)
 	log.Println("Сервер запущен на http://localhost:8080")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
 func timeHandler(w http.ResponseWriter, r *http.Request) {
-	// Загружаем часовые пояса
-	londonLoc, err := time.LoadLocation("Europe/London")
-	if err != nil {
-		http.Error(w, "Ошибка загрузки часового пояса Лондона", http.StatusInternalServerError)
-		return
+	// Обработка POST-запроса для добавления города
+	if r.Method == "POST" {
+		r.ParseForm()
+		newCity := r.FormValue("timezone")
+		if newCity != "" {
+			// Проверяем, существует ли часовой пояс
+			if _, err := time.LoadLocation(newCity); err == nil {
+				// Добавляем только уникальные города
+				exists := false
+				for _, city := range selectedCities {
+					if city == newCity {
+						exists = true
+						break
+					}
+				}
+				if !exists {
+					selectedCities = append(selectedCities, newCity)
+				}
+			}
+		}
 	}
 
-	moscowLoc, err := time.LoadLocation("Europe/Moscow")
-	if err != nil {
-		http.Error(w, "Ошибка загрузки часового пояса Москвы", http.StatusInternalServerError)
-		return
-	}
-
-	// Получаем текущее время
+	// Получаем текущее время для всех выбранных городов
 	now := time.Now()
-	londonTime := now.In(londonLoc)
-	moscowTime := now.In(moscowLoc)
+	cityTimes := []CityTime{}
+	for _, tz := range selectedCities {
+		loc, _ := time.LoadLocation(tz)
+		cityTime := now.In(loc)
+		cityTimes = append(cityTimes, CityTime{
+			Name: tz,
+			Time: cityTime.Format("15:04:05, 02 Jan 2006"),
+		})
+	}
 
-	// Создаем HTML-шаблон
+	// HTML-шаблон
 	tmpl := `
 	<!DOCTYPE html>
 	<html>
@@ -44,28 +64,40 @@ func timeHandler(w http.ResponseWriter, r *http.Request) {
 	</head>
 	<body>
 		<h1>Текущее время</h1>
-		<p>Лондон: {{.London}}</p>
-		<p>Москва: {{.Moscow}}</p>
+		<ul>
+		{{range .Cities}}
+			<li>{{.Name}}: {{.Time}}</li>
+		{{end}}
+		</ul>
+		<form method="POST">
+			<label for="timezone">Добавить город (часовой пояс):</label><br>
+			<select name="timezone" id="timezone">
+				<option value="Europe/London">Лондон (Europe/London)</option>
+				<option value="Europe/Moscow">Москва (Europe/Moscow)</option>
+				<option value="America/New_York">Нью-Йорк (America/New_York)</option>
+				<option value="Asia/Tokyo">Токио (Asia/Tokyo)</option>
+				<option value="Australia/Sydney">Сидней (Australia/Sydney)</option>
+				<!-- Добавьте другие часовые пояса по желанию -->
+			</select>
+			<input type="submit" value="Добавить">
+		</form>
+		<p>Примечание: Указывайте часовые пояса в формате IANA (например, "Asia/Dubai").</p>
 	</body>
 	</html>`
 
-	// Парсим шаблон
+	// Парсим и выполняем шаблон
 	t, err := template.New("time").Parse(tmpl)
 	if err != nil {
 		http.Error(w, "Ошибка обработки шаблона", http.StatusInternalServerError)
 		return
 	}
 
-	// Данные для шаблона
 	data := struct {
-		London string
-		Moscow string
+		Cities []CityTime
 	}{
-		London: londonTime.Format("15:04:05, 02 Jan 2006"),
-		Moscow: moscowTime.Format("15:04:05, 02 Jan 2006"),
+		Cities: cityTimes,
 	}
 
-	// Выполняем шаблон и отправляем ответ
 	err = t.Execute(w, data)
 	if err != nil {
 		http.Error(w, "Ошибка вывода страницы", http.StatusInternalServerError)

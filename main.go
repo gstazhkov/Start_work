@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/mail"
 
 	"github.com/gorilla/sessions" // Используем gorilla/sessions для сессий
 	_ "github.com/mattn/go-sqlite3"
@@ -19,6 +20,7 @@ import (
 type Credentials struct {
 	Username     string
 	PasswordHash string
+	Email        string
 }
 
 // Глобальная переменная для базы данных
@@ -26,6 +28,9 @@ var db *sql.DB
 
 // Глобальная переменная для хранения сессий
 var sessionStore *sessions.CookieStore
+
+// Ключ для шифрования куки сессии (храните его в безопасном месте!)
+var sessionKey []byte
 
 // Функция для генерации случайного sessionKey
 func generateSessionKey() []byte {
@@ -44,20 +49,31 @@ func hashPassword(password string) string {
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
-// Функция для проверки существования пользователя
-func userExists(username string) bool {
+// Функция для проверки существования пользователя по логину
+func userExistsByUsername(username string) bool {
 	var count int
 	err := db.QueryRow("SELECT COUNT(*) FROM users WHERE username = ?", username).Scan(&count)
 	if err != nil {
-		log.Println("Ошибка при проверке пользователя:", err)
+		log.Println("Ошибка при проверке пользователя по логину:", err)
+		return false
+	}
+	return count > 0
+}
+
+// Функция для проверки существования пользователя по почте
+func userExistsByEmail(email string) bool {
+	var count int
+	err := db.QueryRow("SELECT COUNT(*) FROM users WHERE email = ?", email).Scan(&count)
+	if err != nil {
+		log.Println("Ошибка при проверке пользователя по почте:", err)
 		return false
 	}
 	return count > 0
 }
 
 // Функция для сохранения учетных данных в базе данных
-func saveUser(username, passwordHash string) error {
-	_, err := db.Exec("INSERT INTO users (username, password_hash) VALUES (?, ?)", username, passwordHash)
+func saveUser(username, passwordHash, email string) error {
+	_, err := db.Exec("INSERT INTO users (username, password_hash, email) VALUES (?, ?, ?)", username, passwordHash, email)
 	return err
 }
 
@@ -66,6 +82,12 @@ func getPasswordHash(username string) (string, error) {
 	var passwordHash string
 	err := db.QueryRow("SELECT password_hash FROM users WHERE username = ?", username).Scan(&passwordHash)
 	return passwordHash, err
+}
+
+// Функция для валидации email
+func isValidEmail(email string) bool {
+	_, err := mail.ParseAddress(email)
+	return err == nil
 }
 
 // Обработчик для главной страницы (логин или поросенок)
@@ -102,26 +124,37 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 
 	username := r.FormValue("username")
 	password := r.FormValue("password")
+	email := r.FormValue("email")
 
-	if username == "" || password == "" {
+	if username == "" || password == "" || email == "" {
 		http.Error(w, "Пожалуйста, заполните все поля.", http.StatusBadRequest)
 		return
 	}
 
-	if userExists(username) {
+	if !isValidEmail(email) {
+		http.Error(w, "Некорректный формат электронной почты.", http.StatusBadRequest)
+		return
+	}
+
+	if userExistsByUsername(username) {
 		http.Error(w, "Пользователь с таким логином уже существует.", http.StatusBadRequest)
 		return
 	}
 
+	if userExistsByEmail(email) {
+		http.Error(w, "Пользователь с такой электронной почтой уже существует.", http.StatusBadRequest)
+		return
+	}
+
 	hashedPassword := hashPassword(password)
-	err := saveUser(username, hashedPassword)
+	err := saveUser(username, hashedPassword, email)
 	if err != nil {
 		log.Println("Ошибка сохранения пользователя:", err)
 		http.Error(w, "Ошибка регистрации.", http.StatusInternalServerError)
 		return
 	}
 
-	fmt.Printf("Зарегистрирован новый пользователь: Логин=%s\n", username)
+	fmt.Printf("Зарегистрирован новый пользователь: Логин=%s, Email=%s\n", username, email)
 
 	// Перенаправляем на страницу входа
 	http.Redirect(w, r, "/", http.StatusSeeOther)
@@ -199,25 +232,27 @@ func main() {
 	}
 	defer db.Close()
 
-	// Создание таблицы users, если она не существует
+	// Обновление базы данных для работы с почтой
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			username TEXT UNIQUE,
-			password_hash TEXT
+			password_hash TEXT,
+			email TEXT UNIQUE
 		)
 	`)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Ошибка создания/обновления таблицы users: %v", err)
 	}
 
 	// Генерация случайного ключа сессии
-	sessionKey := generateSessionKey()
+	sessionKey = generateSessionKey()
 
 	// Инициализация сессий с настройками
 	sessionStore = sessions.NewCookieStore(sessionKey)
 	sessionStore.Options.MaxAge = 23 * 60 * 60 // 23 часа в секундах
 	sessionStore.Options.HttpOnly = true       // Запретить доступ к куке через JavaScript
+	sessionStore.Options.Secure = true         // Передавать куку только по HTTPS
 
 	// Обработчики маршрутов
 	http.HandleFunc("/", indexHandler)

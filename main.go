@@ -1,11 +1,13 @@
 package main
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"net/http"
 
@@ -25,8 +27,15 @@ var db *sql.DB
 // Глобальная переменная для хранения сессий
 var sessionStore *sessions.CookieStore
 
-// Ключ для шифрования куки сессии (храните его в безопасном месте!)
-var sessionKey = []byte("super-secret-key")
+// Функция для генерации случайного sessionKey
+func generateSessionKey() []byte {
+	key := make([]byte, 32) // 256 bits
+	_, err := io.ReadFull(rand.Reader, key)
+	if err != nil {
+		log.Fatalf("Ошибка генерации ключа сессии: %v", err)
+	}
+	return key
+}
 
 // Функция для хеширования пароля
 func hashPassword(password string) string {
@@ -202,8 +211,13 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Инициализация сессий
+	// Генерация случайного ключа сессии
+	sessionKey := generateSessionKey()
+
+	// Инициализация сессий с настройками
 	sessionStore = sessions.NewCookieStore(sessionKey)
+	sessionStore.Options.MaxAge = 23 * 60 * 60 // 23 часа в секундах
+	sessionStore.Options.HttpOnly = true       // Запретить доступ к куке через JavaScript
 
 	// Обработчики маршрутов
 	http.HandleFunc("/", indexHandler)

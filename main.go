@@ -9,18 +9,24 @@ import (
 	"log"
 	"net/http"
 
-	_ "github.com/mattn/go-sqlite3" // Импорт драйвера SQLite3
+	"github.com/gorilla/sessions" // Используем gorilla/sessions для сессий
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // Структура для хранения учетных данных (хеш пароля)
 type Credentials struct {
 	Username     string
 	PasswordHash string
-	LoggedIn     bool
 }
 
 // Глобальная переменная для базы данных
 var db *sql.DB
+
+// Глобальная переменная для хранения сессий
+var sessionStore *sessions.CookieStore
+
+// Ключ для шифрования куки сессии (храните его в безопасном месте!)
+var sessionKey = []byte("super-secret-key")
 
 // Функция для хеширования пароля
 func hashPassword(password string) string {
@@ -55,12 +61,11 @@ func getPasswordHash(username string) (string, error) {
 
 // Обработчик для главной страницы (логин или поросенок)
 func indexHandler(w http.ResponseWriter, r *http.Request) {
-	// В реальном приложении здесь нужно использовать сессии для отслеживания авторизации
-	// Для примера просто проверяем глобальную переменную
-	// if storedCredentials.LoggedIn {
-	// 	http.Redirect(w, r, "/piggy", http.StatusSeeOther)
-	// 	return
-	// }
+	session, _ := sessionStore.Get(r, "auth-session")
+	if auth, ok := session.Values["authenticated"].(bool); ok && auth {
+		http.Redirect(w, r, "/piggy", http.StatusSeeOther)
+		return
+	}
 	tmpl, err := template.ParseFiles("login.html")
 	if err != nil {
 		http.Error(w, "Ошибка загрузки шаблона", http.StatusInternalServerError)
@@ -133,8 +138,13 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	hashedPassword := hashPassword(password)
 
 	if hashedPassword == storedHash {
-		// В реальном приложении здесь нужно использовать сессии для отслеживания авторизации
-		// storedCredentials.LoggedIn = true
+		session, _ := sessionStore.Get(r, "auth-session")
+		session.Values["authenticated"] = true
+		err = session.Save(r, w)
+		if err != nil {
+			http.Error(w, "Ошибка сохранения сессии.", http.StatusInternalServerError)
+			return
+		}
 		fmt.Printf("Пользователь '%s' вошел в систему.\n", username)
 		http.Redirect(w, r, "/piggy", http.StatusSeeOther)
 	} else {
@@ -144,11 +154,12 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 // Обработчик для страницы с поросенком
 func piggyHandler(w http.ResponseWriter, r *http.Request) {
-	// В реальном приложении здесь нужно проверять сессию
-	// if !storedCredentials.LoggedIn {
-	// 	http.Redirect(w, r, "/", http.StatusSeeOther)
-	// 	return
-	// }
+	session, _ := sessionStore.Get(r, "auth-session")
+	auth, ok := session.Values["authenticated"].(bool)
+	if !ok || !auth {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
 	tmpl, err := template.ParseFiles("piggy.html")
 	if err != nil {
 		http.Error(w, "Ошибка загрузки шаблона", http.StatusInternalServerError)
@@ -159,8 +170,13 @@ func piggyHandler(w http.ResponseWriter, r *http.Request) {
 
 // Обработчик для выхода
 func logoutHandler(w http.ResponseWriter, r *http.Request) {
-	// В реальном приложении здесь нужно очищать сессию
-	// storedCredentials.LoggedIn = false
+	session, _ := sessionStore.Get(r, "auth-session")
+	session.Values["authenticated"] = false
+	err := session.Save(r, w)
+	if err != nil {
+		http.Error(w, "Ошибка сохранения сессии.", http.StatusInternalServerError)
+		return
+	}
 	fmt.Println("Пользователь вышел из системы.")
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -185,6 +201,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	// Инициализация сессий
+	sessionStore = sessions.NewCookieStore(sessionKey)
 
 	// Обработчики маршрутов
 	http.HandleFunc("/", indexHandler)

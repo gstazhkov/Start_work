@@ -12,17 +12,22 @@ import (
 	"net/http"
 	"net/mail"
 	"net/smtp"
+	"regexp"
 
 	"github.com/gorilla/sessions" // Используем gorilla/sessions для сессий
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// Структура для хранения учетных данных и информации о пользователе
+// Структура для хранения информации о пользователе
 type User struct {
 	Username     string
 	PasswordHash string
 	Email        string
-	About        string
+	About        sql.NullString
+	FullName     sql.NullString
+	PhoneNumber  sql.NullString
+	City         sql.NullString
+	BirthDate    sql.NullString
 }
 
 // Глобальная переменная для базы данных
@@ -117,25 +122,51 @@ func sendEmail(to, subject, body string) error {
 // Функция для получения данных пользователя по логину
 func getUserByUsername(username string) (User, error) {
 	var user User
-	err := db.QueryRow("SELECT username, password_hash, email, about FROM users WHERE username = ?", username).Scan(&user.Username, &user.PasswordHash, &user.Email, &user.About)
+	err := db.QueryRow("SELECT username, password_hash, email, about, full_name, phone_number, city, birth_date FROM users WHERE username = ?", username).
+		Scan(&user.Username, &user.PasswordHash, &user.Email, &user.About, &user.FullName, &user.PhoneNumber, &user.City, &user.BirthDate)
 	return user, err
 }
 
 // Функция для обновления информации о пользователе
-func updateUserAbout(username, about string) error {
-	_, err := db.Exec("UPDATE users SET about = ? WHERE username = ?", about, username)
+func updateUserProfile(username string, about, fullName, phoneNumber, city, birthDate string) error {
+	var fullNameSQL, phoneNumberSQL, citySQL, birthDateSQL sql.NullString
+
+	if fullName != "" {
+		fullNameSQL.String = fullName
+		fullNameSQL.Valid = true
+	}
+	if phoneNumber != "" {
+		phoneNumberSQL.String = phoneNumber
+		phoneNumberSQL.Valid = true
+	}
+	if city != "" {
+		citySQL.String = city
+		citySQL.Valid = true
+	}
+	if birthDate != "" {
+		birthDateSQL.String = birthDate
+		birthDateSQL.Valid = true
+	}
+
+	_, err := db.Exec(`
+        UPDATE users SET
+            about = ?,
+            full_name = ?,
+            phone_number = ?,
+            city = ?,
+            birth_date = ?
+        WHERE username = ?
+    `, about, fullNameSQL, phoneNumberSQL, citySQL, birthDateSQL, username)
 	return err
 }
 
-// / Обработчик для главной страницы (логин или поросенок)
+// Обработчик для главной страницы (логин или поросенок)
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	session, _ := sessionStore.Get(r, "auth-session")
 	if auth, ok := session.Values["authenticated"].(bool); ok && auth {
-		// Пользователь залогинен, перенаправляем на страницу поиска
 		http.Redirect(w, r, "/piggy", http.StatusSeeOther)
 		return
 	}
-	// Пользователь не залогинен, показываем форму логина с кнопкой профиля
 	tmpl, err := template.ParseFiles("login.html")
 	if err != nil {
 		http.Error(w, "Ошибка загрузки шаблона", http.StatusInternalServerError)
@@ -230,6 +261,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	if hashedPassword == storedHash {
 		session, _ := sessionStore.Get(r, "auth-session")
 		session.Values["authenticated"] = true
+		session.Values["username"] = username
 		err = session.Save(r, w)
 		if err != nil {
 			http.Error(w, "Ошибка сохранения сессии.", http.StatusInternalServerError)
@@ -267,7 +299,14 @@ func profileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username := session.Values["username"].(string) // Получаем логин из сессии
+	usernameInterface := session.Values["username"]
+	username, ok := usernameInterface.(string)
+	if !ok {
+		log.Println("Ошибка: значение 'username' в сессии не является строкой или отсутствует.")
+		http.Error(w, "Ошибка сервера.", http.StatusInternalServerError)
+		return
+	}
+
 	user, err := getUserByUsername(username)
 	if err != nil {
 		log.Println("Ошибка получения данных пользователя:", err)
@@ -293,10 +332,28 @@ func updateProfileHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == http.MethodPost {
-		about := r.FormValue("about")
-		username := session.Values["username"].(string)
+		usernameInterface := session.Values["username"]
+		username, ok := usernameInterface.(string)
+		if !ok {
+			log.Println("Ошибка: значение 'username' в сессии не является строкой или отсутствует при обновлении профиля.")
+			http.Error(w, "Ошибка сервера.", http.StatusInternalServerError)
+			return
+		}
 
-		err := updateUserAbout(username, about)
+		about := r.FormValue("about")
+		fullName := r.FormValue("full_name")
+		phoneNumber := r.FormValue("phone_number")
+		city := r.FormValue("city")
+		birthDate := r.FormValue("birth_date")
+
+		// Простая валидация номера телефона (только цифры)
+		phoneRegex := regexp.MustCompile(`^\d*$`)
+		if phoneNumber != "" && !phoneRegex.MatchString(phoneNumber) {
+			http.Error(w, "Некорректный формат номера телефона.", http.StatusBadRequest)
+			return
+		}
+
+		err := updateUserProfile(username, about, fullName, phoneNumber, city, birthDate)
 		if err != nil {
 			log.Println("Ошибка обновления информации о пользователе:", err)
 			http.Error(w, "Ошибка сервера.", http.StatusInternalServerError)
@@ -337,7 +394,11 @@ func main() {
 			username TEXT UNIQUE,
 			password_hash TEXT,
 			email TEXT UNIQUE,
-			about TEXT
+			about TEXT,
+			full_name TEXT,
+			phone_number TEXT,
+			city TEXT,
+			birth_date TEXT
 		)
 	`)
 	if err != nil {
@@ -345,7 +406,7 @@ func main() {
 	}
 
 	// Генерация случайного ключа сессии
-	sessionKey = generateSessionKey()
+	sessionKey := generateSessionKey()
 
 	// Инициализация сессий с настройками
 	sessionStore = sessions.NewCookieStore(sessionKey)

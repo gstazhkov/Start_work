@@ -3,40 +3,199 @@
 <head>
     <title>Профиль пользователя</title>
     <style>
-        /* ... стили ... */
+        body {
+            font-family: 'Roboto', sans-serif; /* Используйте шрифт, похожий на VK */
+            background-color: #f0f2f5; /* Светло-серый фон VK */
+            margin: 0;
+            padding: 0;
+            color: #222; /* Основной цвет текста */
+        }
+
+        .profile-container {
+            width: 900px; /* Примерная ширина контейнера VK */
+            margin: 20px auto;
+            background-color: #fff;
+            border-radius: 5px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+            overflow: hidden; /* Для обтекания float */
+        }
+
+        /* Шапка профиля (аватар, имя, статус) */
+        .profile-header {
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .profile-avatar {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background-color: #ccc; /* Заглушка для аватара */
+            margin-right: 20px;
+        }
+
+        .profile-info {
+            flex-grow: 1;
+        }
+
+        .profile-name {
+            font-size: 1.5em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .profile-status {
+            font-size: 0.9em;
+            color: #999;
+        }
+
+        /* Основной контент профиля (левая и правая колонки) */
+        .profile-content {
+            display: flex;
+            padding: 20px;
+        }
+
+        /* Левая колонка (основная информация) */
+        .profile-left-column {
+            flex: 1;
+            margin-right: 20px;
+        }
+
+        .profile-block {
+            background-color: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 5px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .profile-block-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #555;
+        }
+
+        .profile-info-list li {
+            padding: 5px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .profile-info-list li:last-child {
+            border-bottom: none;
+        }
+
+        .profile-info-label {
+            font-weight: bold;
+            color: #777;
+            margin-right: 5px;
+        }
+
+        /* Правая колонка (возможно, друзья, фото и т.д.) */
+        .profile-right-column {
+            width: 200px;
+        }
+
+        /* Форма редактирования */
+        .profile-edit-form .form-group {
+            margin-bottom: 15px;
+        }
+
+        .profile-edit-form label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+
+        .profile-edit-form input[type="text"],
+        .profile-edit-form textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            box-sizing: border-box;
+        }
+
+        .profile-edit-form button[type="submit"] {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 1em;
+        }
+
+        .profile-edit-form button[type="submit"]:hover {
+            background-color: #0056b3;
+        }
+
+        .logout-link {
+            display: block;
+            text-align: center;
+            margin-top: 20px;
+            color: #dc3545;
+        }
     </style>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400,500,700&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="profile-container">
-        <h1>Профиль пользователя</h1>
-        <p><strong>Логин:</strong> {{.Username}}</p>
-        <p><strong>Email:</strong> {{.Email}}</p>
+        <div class="profile-header">
+            <div class="profile-avatar">
+                </div>
+            <div class="profile-info">
+                <h1 class="profile-name">{{.Username}}</h1>
+                <div class="profile-status">Онлайн</div>
+                </div>
+        </div>
+        <div class="profile-content">
+            <div class="profile-left-column">
+                <div class="profile-block">
+                    <h2 class="profile-block-title">Основная информация</h2>
+                    <ul class="profile-info-list">
+                        <li><span class="profile-info-label">ФИО:</span> {{if .FullName.Valid}}{{.FullName.String}}{{end}}</li>
+                        <li><span class="profile-info-label">Город:</span> {{if .City.Valid}}{{.City.String}}{{end}}</li>
+                        <li><span class="profile-info-label">Дата рождения:</span> {{if .BirthDate.Valid}}{{.BirthDate.String}}{{end}}</li>
+                        <li><span class="profile-info-label">Номер телефона:</span> {{if .PhoneNumber.Valid}}{{.PhoneNumber.String}}{{end}}</li>
+                        <li><span class="profile-info-label">Email:</span> {{.Email}}</li>
+                        <li><span class="profile-info-label">О себе:</span> {{if .About.Valid}}{{.About.String}}{{end}}</li>
+                    </ul>
+                </div>
 
-        <form action="/profile_update" method="post">
-            <div class="form-group">
-                <label for="about">О себе:</label>
-                <textarea id="about" name="about" rows="5">{{if .About.Valid}}{{.About.String}}{{end}}</textarea>
+                <div class="profile-block">
+                    <h2 class="profile-block-title">Редактировать профиль</h2>
+                    <form action="/profile_update" method="post" class="profile-edit-form">
+                        <div class="form-group">
+                            <label for="full_name">ФИО:</label>
+                            <input type="text" id="full_name" name="full_name" value="{{if .FullName.Valid}}{{.FullName.String}}{{end}}">
+                        </div>
+                        <div class="form-group">
+                            <label for="city">Город:</label>
+                            <input type="text" id="city" name="city" value="{{if .City.Valid}}{{.City.String}}{{end}}">
+                        </div>
+                        <div class="form-group">
+                            <label for="birth_date">Дата рождения:</label>
+                            <input type="text" id="birth_date" name="birth_date" value="{{if .BirthDate.Valid}}{{.BirthDate.String}}{{end}}">
+                        </div>
+                        <div class="form-group">
+                            <label for="phone_number">Номер телефона:</label>
+                            <input type="text" id="phone_number" name="phone_number" value="{{if .PhoneNumber.Valid}}{{.PhoneNumber.String}}{{end}}">
+                        </div>
+                        <div class="form-group">
+                            <label for="about">О себе:</label>
+                            <textarea id="about" name="about" rows="5">{{if .About.Valid}}{{.About.String}}{{end}}</textarea>
+                        </div>
+                        <button type="submit">Сохранить изменения</button>
+                    </form>
+                </div>
             </div>
-            <div class="form-group">
-                <label for="full_name">ФИО:</label>
-                <input type="text" id="full_name" name="full_name" value="{{if .FullName.Valid}}{{.FullName.String}}{{end}}">
-            </div>
-            <div class="form-group">
-                <label for="phone_number">Номер телефона:</label>
-                <input type="text" id="phone_number" name="phone_number" value="{{if .PhoneNumber.Valid}}{{.PhoneNumber.String}}{{end}}">
-            </div>
-            <div class="form-group">
-                <label for="city">Город:</label>
-                <input type="text" id="city" name="city" value="{{if .City.Valid}}{{.City.String}}{{end}}">
-            </div>
-            <div class="form-group">
-                <label for="birth_date">Дата рождения:</label>
-                <input type="text" id="birth_date" name="birth_date" value="{{if .BirthDate.Valid}}{{.BirthDate.String}}{{end}}">
-            </div>
-            <button type="submit">Сохранить изменения</button>
-        </form>
-
-        <a href="/logout" class="logout-link">Выйти</a>
+            <div class="profile-right-column">
+                </div>
+        </div>
+    <div class="form-group"><a href="/logout" class="logout-link">Выйти</a></div>
     </div>
 </body>
 </html>
